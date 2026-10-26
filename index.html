@@ -58,7 +58,7 @@ input,select,textarea{width:100%;padding:12px 13px;border:1px solid var(--bd);bo
 .logo-preview img{max-width:90%;max-height:80px;object-fit:contain}
 </style></head><body><div id="app"></div>
 <script>
-const SUPABASE_URL='https://rngylwfuhgmclexvfqiy.supabase.co', SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJuZ3lsd2Z1aGdtY2xleHZmcWl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MzUwMTUsImV4cCI6MjEwNjIxMTAxNX0.LbYlRCXCvPQOtwiid27ZNDs8eXVKSWvv8OOR1oBMPPk';
+const SUPABASE_URL='https://rngylwfuhgmclexvfqiy.supabase.co', SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVseW15b3lpd3dibGNxemVmaXFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5MTQ3MDAsImV4cCI6MjEwODQ5MDcwMH0.RzCSSIRWEXRUyvPlJkN-yOyy0KckcYlntDzbmaDOV2I';
 const $=s=>document.querySelector(s),R=n=>'R$ '+Number(n).toFixed(2).replace('.',','),E=s=>String(s??'').replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const okImg=u=>typeof u=='string'&&u.startsWith(SUPABASE_URL+'/storage/')?u:'';
