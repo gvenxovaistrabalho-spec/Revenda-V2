@@ -43,6 +43,13 @@ button,input,select,textarea{font:inherit;color:inherit}
 .cube i:nth-child(6){transform:rotateX(-90deg) translateZ(calc(var(--s)/2))}
 @keyframes spin{from{transform:rotateX(0) rotateY(0)}to{transform:rotateX(360deg) rotateY(360deg)}}
 
+@media (prefers-reduced-motion:reduce){.cube,.grid3d,.float,.bg::before{animation:none!important}}
+body.idle .cube,body.idle .grid3d,body.idle .float,body.idle .bg::before{animation-play-state:paused!important}
+.searchbar{position:relative}
+.searchbar .sicon{position:absolute;left:1rem;pointer-events:none;opacity:.8}
+.searchbar input{max-width:520px;padding-left:2.6rem;border-radius:999px}
+.badge.cat{background:rgba(0,224,255,.12);color:var(--p2);border-color:rgba(0,224,255,.35)}
+.item,.order,.prod-card{content-visibility:auto;contain-intrinsic-size:auto 120px}
 /* ---------- vidro + tilt 3D ---------- */
 .glass{background:var(--glass);border:1px solid var(--line);border-radius:20px;backdrop-filter:blur(18px) saturate(140%);
   box-shadow:0 20px 50px -20px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.12)}
@@ -152,7 +159,7 @@ main{padding:1rem 1.2rem 4rem;max-width:1300px;margin:0 auto}
 .modal{position:fixed;inset:0;z-index:50;background:rgba(3,2,15,.7);backdrop-filter:blur(8px);display:grid;place-items:center;padding:1rem;overflow:auto}
 .modal .box{width:min(640px,100%);max-height:92vh;overflow:auto;padding:1.5rem;background:rgba(20,18,46,.92);animation:pop .35s cubic-bezier(.2,1.4,.4,1)}
 @keyframes pop{from{opacity:0;transform:perspective(900px) rotateX(18deg) translateY(30px) scale(.95)}}
-.row{display:grid;grid-template-columns:1.3fr 1fr 90px 36px;gap:.5rem;margin-top:.5rem}
+.row{display:grid;grid-template-columns:1.3fr 1fr 90px 36px;gap:.5rem;margin-top:.7rem}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
 @media(max-width:560px){.row{grid-template-columns:1fr 1fr}.row2{grid-template-columns:1fr}}
 
@@ -198,8 +205,8 @@ main{padding:1rem 1.2rem 4rem;max-width:1300px;margin:0 auto}
 <script>
 /* ============ CONFIGURAÇÃO: cole aqui os dados do seu Supabase ============ */
 const CFG = {
-  URL: "https://lnetdehrdbduhibuwgiz.supabase.co",          // ex: https://abcdxyz.supabase.co
-  KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuZXRkZWhyZGJkdWhpYnV3Z2l6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MTk4MDgsImV4cCI6MjEwNjE5NTgwOH0.dzpYwnP5F-KZIOEe_H-C_99BiV6oX4fD0xEKnScc6gk"
+  URL: "https://lnetdehrdbduhibuwgiz.supabase.co",
+  KEY: "sb_publishable_t2Fp4PH52x_Fkz93WKPrng_LLiQWFSp"
 };
 /* ========================================================================== */
 
@@ -210,7 +217,7 @@ const MP = {
   magalu:{n:'Magalu',c:'#0086ff'}
 };
 const SLOTS = ['Hoje manhã','Hoje tarde','Amanhã manhã','Amanhã tarde','Sem horário'];
-const S = {sess:null, orders:[], products:[], users:[], tab:'pedidos', mp:'todos', st:'todos', editSku:null, chips:[]};
+const S = {sess:null, orders:[], products:[], users:[], tab:'pedidos', mp:'todos', st:'todos', editSku:null, chips:[], cat:'todas', q:'', pcat:'', sig:'', oq:''};
 const $ = s => document.querySelector(s);
 const esc = v => String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const isAdmin = () => S.sess?.role === 'admin';
@@ -219,7 +226,9 @@ const isAdmin = () => S.sess?.role === 'admin';
 async function api(fn, body={}){
   const h = {'apikey':CFG.KEY,'Content-Type':'application/json'};
   if(CFG.KEY.startsWith('eyJ')) h.Authorization = 'Bearer '+CFG.KEY;
-  const r = await fetch(`${CFG.URL}/rest/v1/rpc/${fn}`,{method:'POST',headers:h,body:JSON.stringify(body)});
+  let base = CFG.URL.trim();
+  try{ base = new URL(base).origin; }catch{ base = base.replace(/\/+$/,'').replace(/\/rest\/v1.*$/,''); }
+  const r = await fetch(`${base}/rest/v1/rpc/${fn}`,{method:'POST',headers:h,body:JSON.stringify(body)});
   const t = await r.text(); let j=null; try{ j = t?JSON.parse(t):null }catch{}
   if(!r.ok) throw new Error((j&&(j.message||j.hint))||('Erro '+r.status));
   return j;
@@ -243,6 +252,8 @@ function toast(msg, type='ok'){
     el.appendChild(f);
   });
 })();
+
+document.addEventListener('visibilitychange',()=>document.body.classList.toggle('idle',document.hidden));
 
 /* ---------- tilt 3D nos cards ---------- */
 document.addEventListener('pointermove',e=>{
@@ -282,7 +293,7 @@ async function enterApp(){
   $('#whoName').textContent=S.sess.username; $('#whoRole').textContent=isAdmin()?'Administrador':'Produção';
   S.tab = isAdmin()?'pedidos':'producao';
   renderTabs(); await loadAll(); render();
-  clearInterval(enterApp.h); enterApp.h=setInterval(async()=>{ if(document.hidden) return; await loadOrders(); if(S.tab==='pedidos'||S.tab==='producao') render(); },8000);
+  clearInterval(enterApp.h); enterApp.h=setInterval(async()=>{ if(document.hidden||document.querySelector('#modalRoot .modal')||document.activeElement?.id==='oSearch') return; const old=S.sig; await loadOrders(); if(S.sig!==old && (S.tab==='pedidos'||S.tab==='producao')) render(); },8000);
 }
 async function logout(){
   try{ await call('logout'); }catch{}
@@ -291,7 +302,7 @@ async function logout(){
 }
 
 /* ---------- dados ---------- */
-async function loadOrders(){ try{ S.orders = await call('list_orders'); }catch(e){ if(/Sess/.test(e.message)) logout(); } }
+async function loadOrders(){ try{ const o = await call('list_orders'); const sig=JSON.stringify(o); if(sig!==S.sig){ S.sig=sig; S.orders=o; } }catch(e){ if(/Sess/.test(e.message)) logout(); } }
 async function loadAll(){
   await loadOrders();
   if(isAdmin()){ try{ S.products = await call('list_products'); }catch{} }
@@ -319,19 +330,26 @@ function ordersView(){
   const items = all.flatMap(o=>o.items);
   const pend = items.filter(i=>!i.ready).length, done = items.length-pend;
   const pendQty = items.filter(i=>!i.ready).reduce((a,i)=>a+i.quantity,0);
+  const oq = S.oq.trim().toLowerCase();
+  const cats = [...new Set(items.map(i=>i.category).filter(Boolean))].sort();
   let list = all.filter(o=> S.mp==='todos'||o.marketplace===S.mp)
+                .filter(o=> S.cat==='todas' || o.items.some(i=>i.category===S.cat))
+                .filter(o=> !oq || (o.order_code||'').toLowerCase().includes(oq) || String(o.id)===oq || o.items.some(i=>matchItem(i,oq)))
                 .filter(o=> S.st==='todos' || (S.st==='pend'? o.items.some(i=>!i.ready) : o.items.length&&o.items.every(i=>i.ready)));
   const chips = ['todos',...Object.keys(MP)].map(k=>{
     const n = k==='todos'?all.length:all.filter(o=>o.marketplace===k).length;
     return `<button class="chip ${S.mp===k?'on':''}" data-a="fmp" data-v="${k}">${k==='todos'?'Todos':MP[k].n} · ${n}</button>`;
   }).join('');
+  const catChips = cats.length>1 ? ['todas',...cats].map(c=>`<button class="chip ${S.cat===c?'on':''}" data-a="fcat" data-v="${esc(c)}">${c==='todas'?'Todas categorias':esc(c)}</button>`).join('') : '';
   const sts = [['todos','Todos'],['pend','Pendentes'],['feito','Prontos']].map(([k,n])=>`<button class="chip ${S.st===k?'on':''}" data-a="fst" data-v="${k}">${n}</button>`).join('');
   let html = `<div class="stats">
     <div class="glass stat tilt"><b>${pend}</b><span>Itens pendentes</span></div>
     <div class="glass stat tilt"><b>${pendQty}</b><span>Peças a produzir</span></div>
     <div class="glass stat tilt"><b>${done}</b><span>Itens prontos</span></div>
     <div class="glass stat tilt"><b>${all.length}</b><span>Pedidos</span></div></div>
+    <div class="bar searchbar"><span class="sicon">🔎</span><input id="oSearch" type="search" placeholder="Pesquisar por SKU, nome, cor ou nº do pedido…" value="${esc(S.oq)}" autocomplete="off">${S.oq?'<button class="btn sm ghost" data-a="clearSearch">Limpar</button>':''}</div>
     <div class="bar">${chips}</div>
+    ${catChips?`<div class="bar">${catChips}</div>`:''}
     <div class="bar">${sts}<div class="sp"></div>${prod?'':'<button class="btn" data-a="newOrder">＋ Novo pedido</button>'}</div>`;
   if(!list.length) html += `<div class="empty">Nenhum pedido por aqui ainda.</div>`;
   for(const k of Object.keys(MP)){
@@ -345,13 +363,14 @@ function ordersView(){
   }
   return html;
 }
+function matchItem(i,q){ return (i.sku||'').toLowerCase().includes(q)||(i.name||'').toLowerCase().includes(q)||(i.variation||'').toLowerCase().includes(q); }
 function orderCard(o,k,prod){
   const done=o.items.filter(i=>i.ready).length, pct=o.items.length?Math.round(done/o.items.length*100):0;
   return `<div class="glass order tilt" style="--c:${MP[k].c}">
     <h3>${o.order_code?esc(o.order_code):'Pedido #'+o.id} ${o.slot!=='Sem horário'?`<span class="badge">${esc(o.slot)}</span>`:''}</h3>
     ${o.notes?`<div class="note">📝 ${esc(o.notes)}</div>`:''}
     <div class="prog"><i style="width:${pct}%"></i></div>
-    ${o.items.map(i=>`<div class="item ${i.ready?'ready':''}">
+    ${o.items.filter(i=>(S.cat==='todas'||i.category===S.cat)&&(!S.oq.trim()||matchItem(i,S.oq.trim().toLowerCase())||(o.order_code||'').toLowerCase().includes(S.oq.trim().toLowerCase())||String(o.id)===S.oq.trim())).map(i=>`<div class="item ${i.ready?'ready':''}">
       <div class="sku">${esc(i.sku)}<small>${esc(i.name)}</small></div>
       <div class="var">${i.variation?esc(i.variation):''}</div>
       <div class="qty">×${i.quantity}</div>
@@ -384,15 +403,23 @@ function openOrderModal(orderId=null){
     </div></div></div>`;
   addRow();
 }
+const prodCats = () => [...new Set(S.products.map(p=>p.category).filter(Boolean))].sort();
+function skuOptions(cat){
+  const list = cat ? S.products.filter(p=>p.category===cat) : S.products;
+  return '<option value="">SKU…</option>'+list.map(p=>`<option value="${esc(p.sku)}">${esc(p.sku)}${p.name?' — '+esc(p.name):''}</option>`).join('');
+}
 function addRow(){
   const d=document.createElement('div'); d.className='row';
-  d.innerHTML = `<select class="rSku"><option value="">SKU…</option>${S.products.map(p=>`<option value="${esc(p.sku)}">${esc(p.sku)}${p.name?' — '+esc(p.name):''}</option>`).join('')}</select>
+  const cats=prodCats();
+  d.innerHTML = `${cats.length>1?`<select class="rCat" style="grid-column:1/-1"><option value="">Todas as categorias</option>${cats.map(c=>`<option>${esc(c)}</option>`).join('')}</select>`:''}
+    <select class="rSku">${skuOptions('')}</select>
     <select class="rVar"><option value="">Variação</option></select>
     <input class="rQty" type="number" min="1" value="1">
     <button class="btn sm danger" data-a="rowDel" type="button">✕</button>`;
   $('#mRows').appendChild(d);
 }
 document.addEventListener('change',e=>{
+  if(e.target.classList.contains('rCat')){ e.target.closest('.row').querySelector('.rSku').innerHTML=skuOptions(e.target.value); e.target.closest('.row').querySelector('.rVar').innerHTML='<option value="">Variação</option>'; return; }
   if(!e.target.classList.contains('rSku')) return;
   const p=S.products.find(x=>x.sku===e.target.value), sel=e.target.closest('.row').querySelector('.rVar');
   sel.innerHTML = p&&p.variations.length ? p.variations.map(v=>`<option>${esc(v)}</option>`).join('') : '<option value="">Único</option>';
@@ -411,6 +438,8 @@ function productsView(){
      <h2>${e?'Editar produto':'Novo produto'}</h2>
      <label>SKU</label><input id="pSku" value="${esc(e?.sku||'')}" ${e?'readonly':''} placeholder="Ex: CAMA-GG">
      <label>Nome (opcional)</label><input id="pName" value="${esc(e?.name||'')}" placeholder="Ex: Cama Pet GG">
+     <label>Categoria</label>
+     <select id="pCat">${['Cama','Colchão fibra'].map(c=>`<option ${((e?.category)||S.pcat||'Cama')===c?'selected':''}>${c}</option>`).join('')}</select>
      <label>Variações (cor / tipo)</label>
      <input id="pVar" placeholder="Digite e aperte Enter (ex: Branco)">
      <div class="vchips" id="pChips"></div>
@@ -419,13 +448,30 @@ function productsView(){
        ${e?'<button class="btn ghost" data-a="cancelEdit">Cancelar</button>':''}
      </div>
    </div>
-   <div><div class="pgrid">${S.products.map(p=>`<div class="glass prod-card tilt">
-      <h3>${esc(p.sku)}</h3><div class="note">${esc(p.name)||'—'}</div>
+   <div>
+     <div class="bar"><input id="pSearch" placeholder="🔎 Buscar SKU ou nome…" value="${esc(S.q)}" style="max-width:340px">
+       ${['','Cama','Colchão fibra'].map(c=>`<button class="chip ${S.pcat===c?'on':''}" data-a="pfilter" data-v="${c}">${c||'Todos'}</button>`).join('')}
+       <span class="note" style="margin:0">${filteredProducts().length} produtos</span></div>
+     <div class="pgrid">${filteredProducts().slice(0,60).map(p=>`<div class="glass prod-card tilt">
+      <h3>${esc(p.sku)} ${p.category?`<span class="badge cat">${esc(p.category)}</span>`:''}</h3><div class="note">${esc(p.name)||'—'}</div>
       <div class="vchips">${p.variations.map(v=>`<span class="vc">${esc(v)}</span>`).join('')||'<span class="note">sem variações</span>'}</div>
       <div class="tools"><button class="btn sm ghost" data-a="editProduct" data-id="${esc(p.sku)}">Editar</button>
       <button class="btn sm danger" data-a="delProduct" data-id="${esc(p.sku)}">Excluir</button></div></div>`).join('')
-      || '<div class="empty">Nenhum produto ainda.</div>'}</div></div></div>`;
+      || '<div class="empty">Nenhum produto ainda.</div>'}</div>
+      ${filteredProducts().length>60?'<div class="note" style="text-align:center;margin-top:1rem">Mostrando 60 — use a busca para achar os outros.</div>':''}</div></div>`;
 }
+function filteredProducts(){
+  const q=S.q.trim().toLowerCase();
+  return S.products.filter(p=>(!S.pcat||p.category===S.pcat)&&(!q||p.sku.toLowerCase().includes(q)||(p.name||'').toLowerCase().includes(q)));
+}
+let _ot; document.addEventListener('input',e=>{
+  if(e.target.id!=='oSearch') return; clearTimeout(_ot);
+  _ot=setTimeout(()=>{ S.oq=e.target.value; const pos=e.target.selectionStart; render(); const i=$('#oSearch'); if(i){ i.focus(); i.setSelectionRange(pos,pos);} },200);
+});
+let _st; document.addEventListener('input',e=>{
+  if(e.target.id!=='pSearch') return; clearTimeout(_st);
+  _st=setTimeout(()=>{ S.q=e.target.value; const pos=e.target.selectionStart; render(); drawChips(); const i=$('#pSearch'); if(i){ i.focus(); i.setSelectionRange(pos,pos);} },250);
+});
 function drawChips(){
   const c=$('#pChips'); if(!c) return;
   c.innerHTML = S.chips.map((v,i)=>`<span class="vc">${esc(v)}<button data-a="chipDel" data-v="${i}">✕</button></span>`).join('');
@@ -456,10 +502,12 @@ document.addEventListener('click',async e=>{
       case 'logout': return logout();
       case 'tab':
         S.tab=v; if(v==='senhas') S.users = await call('list_users');
-        if(v==='produtos'){ S.editSku=null; S.chips=[]; }
+        if(v==='produtos'){ S.editSku=null; S.chips=[]; S.q=''; S.pcat=''; S.products=await call('list_products'); }
         render(); if(v==='produtos') drawChips(); return;
       case 'fmp': S.mp=v; return render();
       case 'fst': S.st=v; return render();
+      case 'fcat': S.cat=v; return render();
+      case 'clearSearch': S.oq=''; return render();
       case 'newOrder': return openOrderModal();
       case 'addItem': return openOrderModal(+id);
       case 'closeModal': if(e.target===b||b.classList.contains('btn')) $('#modalRoot').innerHTML=''; return;
@@ -487,10 +535,11 @@ document.addEventListener('click',async e=>{
         await call('delete_order',{p_order_id:+id}); await loadOrders(); return render();
       case 'saveProduct': {
         const pend=$('#pVar').value.trim(); if(pend && !S.chips.includes(pend)) S.chips.push(pend);
-        await call('upsert_product',{p_sku:$('#pSku').value,p_name:$('#pName').value,p_variations:S.chips});
+        await call('upsert_product',{p_sku:$('#pSku').value,p_name:$('#pName').value,p_variations:S.chips,p_category:$('#pCat').value});
         S.editSku=null; S.chips=[]; S.products=await call('list_products'); toast('Produto salvo'); render(); return drawChips();
       }
       case 'editProduct': S.editSku=id; S.chips=[...(S.products.find(p=>p.sku===id)?.variations||[])]; render(); return drawChips();
+      case 'pfilter': S.pcat=v; render(); return drawChips();
       case 'cancelEdit': S.editSku=null; S.chips=[]; render(); return drawChips();
       case 'delProduct': if(!confirm('Excluir o produto '+id+'? (pedidos antigos continuam)')) return;
         await call('delete_product',{p_sku:id}); S.products=await call('list_products'); render(); return drawChips();
