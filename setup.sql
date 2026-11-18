@@ -29,6 +29,16 @@ create table if not exists public.products (
   created_at timestamptz not null default now()
 );
 
+-- categoria do produto (Cama / Colchão fibra)
+alter table public.products add column if not exists category text not null default '';
+
+-- configurações do painel (ex.: WhatsApp da produção)
+create table if not exists public.app_settings (
+  key        text primary key,
+  value      text not null default '',
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.orders (
   id          bigint generated always as identity primary key,
   marketplace text not null check (marketplace in ('mercado_livre','shopee','tiktok','magalu')),
@@ -50,6 +60,8 @@ create table if not exists public.order_items (
 );
 
 create index if not exists order_items_order_idx on public.order_items(order_id);
+create index if not exists order_items_pending_idx on public.order_items(order_id) where not ready;
+create index if not exists orders_created_idx on public.orders(created_at desc);
 
 -- 3) SEGURANÇA: ninguém acessa as tabelas direto, só pelas funções abaixo
 alter table public.app_users    enable row level security;
@@ -57,9 +69,10 @@ alter table public.app_sessions enable row level security;
 alter table public.products     enable row level security;
 alter table public.orders       enable row level security;
 alter table public.order_items  enable row level security;
+alter table public.app_settings enable row level security;
 
 revoke all on public.app_users, public.app_sessions, public.products,
-              public.orders,   public.order_items from anon, authenticated;
+              public.orders,   public.order_items, public.app_settings from anon, authenticated;
 
 -- 4) FUNÇÕES -----------------------------------------------------------
 
@@ -110,14 +123,15 @@ begin
   return (select coalesce(json_agg(p order by p.sku), '[]'::json) from products p);
 end $$;
 
-create or replace function public.upsert_product(p_token text, p_sku text, p_name text, p_variations text[]) returns void
+drop function if exists public.upsert_product(text,text,text,text[]);
+create or replace function public.upsert_product(p_token text, p_sku text, p_name text, p_variations text[], p_category text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   if public._role_of(p_token) is distinct from 'admin' then raise exception 'Sem permissão'; end if;
   if trim(coalesce(p_sku,'')) = '' then raise exception 'Informe o SKU'; end if;
-  insert into products(sku, name, variations)
-    values (upper(trim(p_sku)), coalesce(trim(p_name),''), coalesce(p_variations,'{}'))
-  on conflict (sku) do update set name = excluded.name, variations = excluded.variations;
+  insert into products(sku, name, variations, category)
+    values (upper(trim(p_sku)), coalesce(trim(p_name),''), coalesce(p_variations,'{}'), coalesce(trim(p_category),''))
+  on conflict (sku) do update set name = excluded.name, variations = excluded.variations, category = excluded.category;
 end $$;
 
 create or replace function public.delete_product(p_token text, p_sku text) returns void
@@ -136,12 +150,15 @@ begin
     select coalesce(json_agg(x order by x.created_at desc), '[]'::json) from (
       select o.id, o.marketplace, o.slot, o.order_code, o.notes, o.created_at,
         (select coalesce(json_agg(json_build_object(
-                  'id', i.id, 'sku', i.sku, 'name', coalesce(p.name,''),
+                  'id', i.id, 'sku', i.sku, 'name', coalesce(p.name,''), 'category', coalesce(p.category,''),
                   'variation', i.variation, 'quantity', i.quantity, 'ready', i.ready
                 ) order by i.id), '[]'::json)
            from order_items i left join products p on p.sku = i.sku
           where i.order_id = o.id) as items
       from orders o
+      -- só os últimos 45 dias, ou pedidos que ainda têm item pendente
+      where o.created_at > now() - interval '45 days'
+         or exists (select 1 from order_items i where i.order_id = o.id and not i.ready)
     ) x
   );
 end $$;
@@ -223,15 +240,33 @@ begin
   delete from app_sessions where username = p_username and token <> p_token;  -- derruba logins antigos
 end $$;
 
+-- CONFIGURAÇÕES (todos leem; só admin grava)
+create or replace function public.get_settings(p_token text) returns json
+language plpgsql security definer set search_path = public as $$
+begin
+  if public._role_of(p_token) is null then raise exception 'Sessão expirada'; end if;
+  return (select coalesce(json_object_agg(key, value), '{}'::json) from app_settings);
+end $$;
+
+create or replace function public.set_setting(p_token text, p_key text, p_value text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if public._role_of(p_token) is distinct from 'admin' then raise exception 'Sem permissão'; end if;
+  if p_key not in ('whatsapp_producao') then raise exception 'Configuração desconhecida'; end if;
+  insert into app_settings(key, value) values (p_key, coalesce(trim(p_value),''))
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+end $$;
+
 -- 5) PERMISSÃO PARA O SITE CHAMAR AS FUNÇÕES
 grant execute on function
   public.login(text,text), public.logout(text), public.get_session(text),
-  public.list_products(text), public.upsert_product(text,text,text,text[]), public.delete_product(text,text),
+  public.list_products(text), public.upsert_product(text,text,text,text[],text), public.delete_product(text,text),
   public.list_orders(text), public.create_order(text,text,text,text,text,jsonb),
   public.add_item(text,bigint,text,text,int), public.update_item(text,bigint,text,int),
   public.delete_item(text,bigint), public.delete_order(text,bigint),
   public.set_item_ready(text,bigint,boolean),
-  public.list_users(text), public.change_password(text,text,text)
+  public.list_users(text), public.change_password(text,text,text),
+  public.get_settings(text), public.set_setting(text,text,text)
 to anon, authenticated;
 
 -- 6) AS DUAS CONTAS (troque as senhas depois, pelo painel do site)
@@ -241,3 +276,7 @@ insert into public.app_users(username, role, password_hash) values
   ('admin',    'admin',    extensions.crypt('admin123',    extensions.gen_salt('bf'))),
   ('producao', 'producao', extensions.crypt('producao123', extensions.gen_salt('bf')))
 on conflict (username) do nothing;
+
+insert into public.app_settings(key, value) values ('whatsapp_producao','') on conflict (key) do nothing;
+
+notify pgrst, 'reload schema';
