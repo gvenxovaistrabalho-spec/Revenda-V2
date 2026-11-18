@@ -45,6 +45,27 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 @media (prefers-reduced-motion:reduce){.cube,.grid3d,.float,.bg::before{animation:none!important}}
 body.idle .cube,body.idle .grid3d,body.idle .float,body.idle .bg::before{animation-play-state:paused!important}
+.btn.wa{background:linear-gradient(135deg,#25d366,#128c7e);box-shadow:0 6px 0 #0b5e53,0 14px 24px -6px rgba(37,211,102,.5)}
+.btn.wa:hover{box-shadow:0 8px 0 #0b5e53,0 18px 28px -6px rgba(37,211,102,.6)}
+.btn.wa:active{box-shadow:0 2px 0 #0b5e53}
+.hint{font-size:.78rem;color:var(--mut);margin-top:.4rem;line-height:1.4}
+#printRoot{display:none}
+@media print{
+  @page{margin:12mm}
+  html,body{background:#fff!important;color:#000!important;min-height:0!important}
+  body>*:not(#printRoot){display:none!important}
+  #printRoot{display:block;font-family:Arial,Helvetica,sans-serif;color:#000}
+  #printRoot h1{font-size:20pt;margin-bottom:2pt}
+  #printRoot .pmeta{font-size:10pt;color:#444;margin-bottom:10pt}
+  #printRoot h2{font-size:14pt;border-bottom:2px solid #000;margin:14pt 0 6pt;padding-bottom:2pt;break-after:avoid}
+  #printRoot .pord{margin:0 0 8pt;break-inside:avoid}
+  #printRoot .pcode{font-size:9pt;color:#555;margin-bottom:2pt}
+  #printRoot .pl{display:flex;align-items:center;gap:10pt;font-size:14pt;padding:3pt 0;border-bottom:1px dotted #aaa}
+  #printRoot .pb{width:11pt;height:11pt;border:1.5px solid #000;flex:none}
+  #printRoot .pq{min-width:40pt;font-weight:bold}
+  #printRoot .ps{font-weight:bold}
+  #printRoot .pv{color:#333}
+}
 .searchbar{position:relative}
 .searchbar .sicon{position:absolute;left:1rem;pointer-events:none;opacity:.8}
 .searchbar input{max-width:520px;padding-left:2.6rem;border-radius:999px}
@@ -193,6 +214,7 @@ main{padding:1rem 1.2rem 4rem;max-width:1300px;margin:0 auto}
     <div class="logo"><div class="mini"><div class="cube"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>Painel de Pedidos</div>
     <div class="sp"></div>
     <div class="who">👤 <b id="whoName"></b> · <span id="whoRole"></span></div>
+    <button class="btn sm ghost hidden" id="cfgBtn" data-a="openSettings">⚙ Configuração</button>
     <button class="btn sm ghost" data-a="logout">Sair</button>
   </header>
   <nav class="tabs" id="tabs"></nav>
@@ -201,6 +223,7 @@ main{padding:1rem 1.2rem 4rem;max-width:1300px;margin:0 auto}
 
 <div id="modalRoot"></div>
 <div id="toast"></div>
+<div id="printRoot"></div>
 
 <script>
 /* ============ CONFIGURAÇÃO: cole aqui os dados do seu Supabase ============ */
@@ -217,7 +240,7 @@ const MP = {
   magalu:{n:'Magalu',c:'#0086ff'}
 };
 const SLOTS = ['Hoje manhã','Hoje tarde','Amanhã manhã','Amanhã tarde','Sem horário'];
-const S = {sess:null, orders:[], products:[], users:[], tab:'pedidos', mp:'todos', st:'todos', editSku:null, chips:[], cat:'todas', q:'', pcat:'', sig:'', oq:''};
+const S = {sess:null, orders:[], products:[], users:[], tab:'pedidos', mp:'todos', st:'todos', editSku:null, chips:[], cat:'todas', q:'', pcat:'', sig:'', oq:'', settings:{}};
 const $ = s => document.querySelector(s);
 const esc = v => String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const isAdmin = () => S.sess?.role === 'admin';
@@ -290,7 +313,7 @@ $('#loginForm').addEventListener('submit',async e=>{
 });
 async function enterApp(){
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
-  $('#whoName').textContent=S.sess.username; $('#whoRole').textContent=isAdmin()?'Administrador':'Produção';
+  $('#cfgBtn').classList.toggle('hidden',!isAdmin()); $('#whoName').textContent=S.sess.username; $('#whoRole').textContent=isAdmin()?'Administrador':'Produção';
   S.tab = isAdmin()?'pedidos':'producao';
   renderTabs(); await loadAll(); render();
   clearInterval(enterApp.h); enterApp.h=setInterval(async()=>{ if(document.hidden||document.querySelector('#modalRoot .modal')||document.activeElement?.id==='oSearch') return; const old=S.sig; await loadOrders(); if(S.sig!==old && (S.tab==='pedidos'||S.tab==='producao')) render(); },8000);
@@ -305,7 +328,10 @@ async function logout(){
 async function loadOrders(){ try{ const o = await call('list_orders'); const sig=JSON.stringify(o); if(sig!==S.sig){ S.sig=sig; S.orders=o; } }catch(e){ if(/Sess/.test(e.message)) logout(); } }
 async function loadAll(){
   await loadOrders();
-  if(isAdmin()){ try{ S.products = await call('list_products'); }catch{} }
+  if(isAdmin()){
+    try{ S.products = await call('list_products'); }catch{}
+    try{ S.settings = await call('get_settings'); }catch{}
+  }
 }
 
 /* ---------- abas ---------- */
@@ -330,12 +356,8 @@ function ordersView(){
   const items = all.flatMap(o=>o.items);
   const pend = items.filter(i=>!i.ready).length, done = items.length-pend;
   const pendQty = items.filter(i=>!i.ready).reduce((a,i)=>a+i.quantity,0);
-  const oq = S.oq.trim().toLowerCase();
   const cats = [...new Set(items.map(i=>i.category).filter(Boolean))].sort();
-  let list = all.filter(o=> S.mp==='todos'||o.marketplace===S.mp)
-                .filter(o=> S.cat==='todas' || o.items.some(i=>i.category===S.cat))
-                .filter(o=> !oq || (o.order_code||'').toLowerCase().includes(oq) || String(o.id)===oq || o.items.some(i=>matchItem(i,oq)))
-                .filter(o=> S.st==='todos' || (S.st==='pend'? o.items.some(i=>!i.ready) : o.items.length&&o.items.every(i=>i.ready)));
+  const list = viewList();
   const chips = ['todos',...Object.keys(MP)].map(k=>{
     const n = k==='todos'?all.length:all.filter(o=>o.marketplace===k).length;
     return `<button class="chip ${S.mp===k?'on':''}" data-a="fmp" data-v="${k}">${k==='todos'?'Todos':MP[k].n} · ${n}</button>`;
@@ -350,7 +372,9 @@ function ordersView(){
     <div class="bar searchbar"><span class="sicon">🔎</span><input id="oSearch" type="search" placeholder="Pesquisar por SKU, nome, cor ou nº do pedido…" value="${esc(S.oq)}" autocomplete="off">${S.oq?'<button class="btn sm ghost" data-a="clearSearch">Limpar</button>':''}</div>
     <div class="bar">${chips}</div>
     ${catChips?`<div class="bar">${catChips}</div>`:''}
-    <div class="bar">${sts}<div class="sp"></div>${prod?'':'<button class="btn" data-a="newOrder">＋ Novo pedido</button>'}</div>`;
+    <div class="bar">${sts}<div class="sp"></div>
+      <button class="btn ghost" data-a="print">🖨️ Imprimir lista</button>
+      ${prod?'':'<button class="btn wa" data-a="whats">💬 Enviar no WhatsApp</button><button class="btn" data-a="newOrder">＋ Novo pedido</button>'}</div>`;
   if(!list.length) html += `<div class="empty">Nenhum pedido por aqui ainda.</div>`;
   for(const k of Object.keys(MP)){
     const os = list.filter(o=>o.marketplace===k); if(!os.length) continue;
@@ -363,6 +387,91 @@ function ordersView(){
   }
   return html;
 }
+/* ---------- lista visível (pedidos na tela, impressão e WhatsApp usam o mesmo filtro) ---------- */
+function viewList(){
+  const oq = S.oq.trim().toLowerCase();
+  return S.orders.filter(o=> S.mp==='todos'||o.marketplace===S.mp)
+    .filter(o=> S.cat==='todas' || o.items.some(i=>i.category===S.cat))
+    .filter(o=> !oq || (o.order_code||'').toLowerCase().includes(oq) || String(o.id)===oq || o.items.some(i=>matchItem(i,oq)))
+    .filter(o=> S.st==='todos' || (S.st==='pend'? o.items.some(i=>!i.ready) : o.items.length&&o.items.every(i=>i.ready)));
+}
+function cardItems(o){
+  const q = S.oq.trim().toLowerCase();
+  const orderHit = q && ((o.order_code||'').toLowerCase().includes(q) || String(o.id)===q);
+  return o.items.filter(i=>(S.cat==='todas'||i.category===S.cat)&&(!q||orderHit||matchItem(i,q)));
+}
+function printItems(o){
+  return cardItems(o).filter(i=> S.st==='todos' || (S.st==='pend' ? !i.ready : i.ready));
+}
+function listGroups(){
+  const os = viewList(), out = [];
+  for(const k of Object.keys(MP)) for(const sl of SLOTS){
+    const g = os.filter(o=>o.marketplace===k&&o.slot===sl).sort((a,b)=>a.id-b.id)
+      .map(o=>({o, items:printItems(o)})).filter(x=>x.items.length);
+    if(g.length) out.push({k, sl, g});
+  }
+  return out;
+}
+const nowStr = () => new Date().toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
+const itemLabel = i => i.sku + (i.variation ? ' - '+i.variation : '');
+const totalPieces = groups => groups.reduce((a,x)=>a+x.g.reduce((b,y)=>b+y.items.reduce((c,i)=>c+i.quantity,0),0),0);
+
+function doPrint(){
+  const groups = listGroups();
+  if(!groups.length) return toast('Não há itens para imprimir com esses filtros','bad');
+  $('#printRoot').innerHTML = `<h1>Lista de pedidos</h1><div class="pmeta">${esc(nowStr())} · ${totalPieces(groups)} peças</div>` +
+    groups.map(({k,sl,g})=>`<h2>${esc(MP[k].n)}${sl!=='Sem horário'?' — '+esc(sl):''}</h2>` +
+      g.map(({o,items})=>`<div class="pord"><div class="pcode">${o.order_code?esc(o.order_code):'Pedido #'+o.id}</div>` +
+        items.map(i=>`<div class="pl"><span class="pb"></span><span class="pq">${i.quantity}×</span><span class="ps">${esc(i.sku)}</span>${i.variation?`<span class="pv">${esc(i.variation)}</span>`:''}</div>`).join('') +
+      `</div>`).join('')).join('');
+  window.print();
+}
+
+/* ---------- WhatsApp ---------- */
+function waDigits(v){
+  v = String(v||'').trim(); const plus = v.startsWith('+');
+  let d = v.replace(/\D/g,'').replace(/^0+/,'');
+  if(!plus && (d.length===10||d.length===11)) d = '55'+d;
+  return d;
+}
+function fmtPhone(d){
+  d = String(d||'').replace(/\D/g,''); if(d.startsWith('55') && d.length>=12) d = d.slice(2);
+  if(d.length===11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if(d.length===10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return d;
+}
+function buildWaText(groups){
+  let t = `*Lista de pedidos* (${nowStr()})\n`;
+  for(const {k,sl,g} of groups){
+    t += `\n*${MP[k].n}*${sl!=='Sem horário'?' · '+sl:''}\n`;
+    for(const {o,items} of g){
+      t += `Pedido ${o.order_code||'#'+o.id}\n` + items.map(i=>`${i.quantity}x ${itemLabel(i)}`).join('\n') + '\n';
+    }
+  }
+  return t + `\nTotal: ${totalPieces(groups)} peças`;
+}
+function sendWhats(){
+  const num = waDigits(S.settings.whatsapp_producao);
+  if(num.length<12){ toast('Cadastre o WhatsApp da produção em ⚙ Configuração','bad'); return openSettings(); }
+  const groups = listGroups();
+  if(!groups.length) return toast('Não há itens para enviar com esses filtros','bad');
+  const url = `https://wa.me/${num}?text=${encodeURIComponent(buildWaText(groups))}`;
+  if(url.length>6500) return toast('Lista grande demais para o WhatsApp. Filtre por marketplace ou horário.','bad');
+  window.open(url,'_blank','noopener');
+}
+function openSettings(){
+  $('#modalRoot').innerHTML = `<div class="modal" data-a="closeModal"><div class="glass box">
+    <h2>⚙ Configuração</h2>
+    <label>WhatsApp da produção</label>
+    <input id="sWa" type="tel" inputmode="tel" placeholder="(11) 99999-9999" value="${esc(fmtPhone(S.settings.whatsapp_producao))}">
+    <div class="hint">Com DDD. O código do Brasil (+55) é colocado sozinho. Para outro país, comece com + e o código do país.<br>É para este número que o botão “Enviar no WhatsApp” manda a lista.</div>
+    <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.4rem">
+      <button class="btn ghost" data-a="closeModal">Cancelar</button>
+      <button class="btn" data-a="saveSettings">Salvar</button>
+    </div></div></div>`;
+  setTimeout(()=>$('#sWa')?.focus(),50);
+}
+
 function matchItem(i,q){ return (i.sku||'').toLowerCase().includes(q)||(i.name||'').toLowerCase().includes(q)||(i.variation||'').toLowerCase().includes(q); }
 function orderCard(o,k,prod){
   const done=o.items.filter(i=>i.ready).length, pct=o.items.length?Math.round(done/o.items.length*100):0;
@@ -370,7 +479,7 @@ function orderCard(o,k,prod){
     <h3>${o.order_code?esc(o.order_code):'Pedido #'+o.id} ${o.slot!=='Sem horário'?`<span class="badge">${esc(o.slot)}</span>`:''}</h3>
     ${o.notes?`<div class="note">📝 ${esc(o.notes)}</div>`:''}
     <div class="prog"><i style="width:${pct}%"></i></div>
-    ${o.items.filter(i=>(S.cat==='todas'||i.category===S.cat)&&(!S.oq.trim()||matchItem(i,S.oq.trim().toLowerCase())||(o.order_code||'').toLowerCase().includes(S.oq.trim().toLowerCase())||String(o.id)===S.oq.trim())).map(i=>`<div class="item ${i.ready?'ready':''}">
+    ${cardItems(o).map(i=>`<div class="item ${i.ready?'ready':''}">
       <div class="sku">${esc(i.sku)}<small>${esc(i.name)}</small></div>
       <div class="var">${i.variation?esc(i.variation):''}</div>
       <div class="qty">×${i.quantity}</div>
@@ -508,6 +617,15 @@ document.addEventListener('click',async e=>{
       case 'fst': S.st=v; return render();
       case 'fcat': S.cat=v; return render();
       case 'clearSearch': S.oq=''; return render();
+      case 'print': return doPrint();
+      case 'whats': return sendWhats();
+      case 'openSettings': return openSettings();
+      case 'saveSettings': {
+        const raw = $('#sWa').value.trim(); const d = raw ? waDigits(raw) : '';
+        if(raw && d.length<12) return toast('Número inválido. Use DDD + número.','bad');
+        await call('set_setting',{p_key:'whatsapp_producao',p_value:d});
+        S.settings.whatsapp_producao = d; $('#modalRoot').innerHTML=''; return toast(d?'WhatsApp salvo!':'WhatsApp removido');
+      }
       case 'newOrder': return openOrderModal();
       case 'addItem': return openOrderModal(+id);
       case 'closeModal': if(e.target===b||b.classList.contains('btn')) $('#modalRoot').innerHTML=''; return;
