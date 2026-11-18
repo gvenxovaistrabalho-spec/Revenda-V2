@@ -170,7 +170,8 @@ main{padding:1rem 1.2rem 4rem;max-width:1300px;margin:0 auto}
 .pad h2{font-size:1.1rem;margin-bottom:.3rem}
 .vchips{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem}
 .vc{background:rgba(124,92,255,.22);border:1px solid rgba(124,92,255,.5);padding:.2rem .6rem;border-radius:999px;font-size:.78rem;display:flex;gap:.4rem;align-items:center}
-.vc button{background:none;border:0;cursor:pointer;color:#fff;opacity:.7}
+.vc button{background:none;border:0;cursor:pointer;color:#fff;opacity:.8;font-size:1rem;line-height:1;padding:.3rem .4rem;margin:-.3rem -.3rem -.3rem 0}
+.vc button:hover{opacity:1;color:var(--bad)}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1rem}
 .prod-card{padding:1.1rem}
 .prod-card h3{font-size:1.1rem;font-weight:800}
@@ -545,7 +546,7 @@ function productsView(){
   return `<div class="two">
    <div class="glass pad tilt">
      <h2>${e?'Editar produto':'Novo produto'}</h2>
-     <label>SKU</label><input id="pSku" value="${esc(e?.sku||'')}" ${e?'readonly':''} placeholder="Ex: CAMA-GG">
+     <label>SKU</label><input id="pSku" value="${esc(e?.sku||'')}" placeholder="Ex: CAMA-GG">${e?'<div class="hint">Se mudar o SKU, ele também muda nos pedidos que já existem.</div>':''}
      <label>Nome (opcional)</label><input id="pName" value="${esc(e?.name||'')}" placeholder="Ex: Cama Pet GG">
      <label>Categoria</label>
      <select id="pCat">${['Cama','Colchão fibra'].map(c=>`<option ${((e?.category)||S.pcat||'Cama')===c?'selected':''}>${c}</option>`).join('')}</select>
@@ -586,6 +587,7 @@ function drawChips(){
   c.innerHTML = S.chips.map((v,i)=>`<span class="vc">${esc(v)}<button data-a="chipDel" data-v="${i}">✕</button></span>`).join('');
 }
 document.addEventListener('keydown',e=>{
+  if(e.target.id==='pVar' && e.key==='Backspace' && !e.target.value && S.chips.length){ S.chips.pop(); drawChips(); return; }
   if(e.target.id==='pVar' && (e.key==='Enter'||e.key===',')){
     e.preventDefault(); const v=e.target.value.trim().replace(/,$/,'');
     if(v && !S.chips.includes(v)) S.chips.push(v); e.target.value=''; drawChips();
@@ -653,7 +655,9 @@ document.addEventListener('click',async e=>{
         await call('delete_order',{p_order_id:+id}); await loadOrders(); return render();
       case 'saveProduct': {
         const pend=$('#pVar').value.trim(); if(pend && !S.chips.includes(pend)) S.chips.push(pend);
-        await call('upsert_product',{p_sku:$('#pSku').value,p_name:$('#pName').value,p_variations:S.chips,p_category:$('#pCat').value});
+        const sku=$('#pSku').value;
+        if(S.editSku && sku.trim().toUpperCase()!==S.editSku) await call('rename_product',{p_old:S.editSku,p_new:sku});
+        await call('upsert_product',{p_sku:sku,p_name:$('#pName').value,p_variations:S.chips,p_category:$('#pCat').value});
         S.editSku=null; S.chips=[]; S.products=await call('list_products'); toast('Produto salvo'); render(); return drawChips();
       }
       case 'editProduct': S.editSku=id; S.chips=[...(S.products.find(p=>p.sku===id)?.variations||[])]; render(); return drawChips();
