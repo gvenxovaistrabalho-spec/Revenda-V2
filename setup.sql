@@ -134,6 +134,20 @@ begin
   on conflict (sku) do update set name = excluded.name, variations = excluded.variations, category = excluded.category;
 end $$;
 
+-- troca o SKU de um produto (e dos itens de pedidos já feitos)
+create or replace function public.rename_product(p_token text, p_old text, p_new text) returns void
+language plpgsql security definer set search_path = public as $$
+declare n text := upper(trim(coalesce(p_new,'')));
+begin
+  if public._role_of(p_token) is distinct from 'admin' then raise exception 'Sem permissão'; end if;
+  if n = '' then raise exception 'Informe o SKU'; end if;
+  if n = p_old then return; end if;
+  if exists (select 1 from products where sku = n) then raise exception 'Já existe um produto com esse SKU'; end if;
+  update products set sku = n where sku = p_old;
+  if not found then raise exception 'Produto não encontrado'; end if;
+  update order_items set sku = n where sku = p_old;
+end $$;
+
 create or replace function public.delete_product(p_token text, p_sku text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -266,7 +280,8 @@ grant execute on function
   public.delete_item(text,bigint), public.delete_order(text,bigint),
   public.set_item_ready(text,bigint,boolean),
   public.list_users(text), public.change_password(text,text,text),
-  public.get_settings(text), public.set_setting(text,text,text)
+  public.get_settings(text), public.set_setting(text,text,text),
+  public.rename_product(text,text,text)
 to anon, authenticated;
 
 -- 6) AS DUAS CONTAS (troque as senhas depois, pelo painel do site)
